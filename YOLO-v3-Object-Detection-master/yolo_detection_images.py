@@ -1,65 +1,76 @@
 import numpy as np
 import cv2
 
-confidenceThreshold = 0.5
-NMSThreshold = 0.3
 
-modelConfiguration = 'YOLO-v3-Object-Detection-master/cfg/yolov3.cfg'
-modelWeights = 'YOLO-v3-Object-Detection-master/yolov3.weights'
+def detectObject(img_path):
+    confidenceThreshold = 0.5
+    NMSThreshold = 0.3
 
-labelsPath = 'YOLO-v3-Object-Detection-master/yolo_detection_images.py'
-labels = open(labelsPath).read().strip().split('\n')
+    modelConfiguration = 'YOLO-v3-Object-Detection-master/cfg/yolov3.cfg'
+    modelWeights = 'YOLO-v3-Object-Detection-master/yolov3.weights'
 
-np.random.seed(10)
-COLORS = np.random.randint(0, 255, size=(len(labels), 3), dtype="uint8")
+    labelsPath = 'YOLO-v3-Object-Detection-master/coco.names'
+    labels = open(labelsPath).read().strip().split('\n')
 
-net = cv2.dnn.readNetFromDarknet(modelConfiguration, modelWeights)
+    np.random.seed(10)
+    COLORS = np.random.randint(0, 255, size=(len(labels), 3), dtype="uint8")
 
-image = cv2.imread('YOLO-v3-Object-Detection-master/images/person.jpg')
-#print(image)
-(H, W) = image.shape[:2]
+    net = cv2.dnn.readNetFromDarknet(modelConfiguration, modelWeights)
 
-#Determine output layer names
-layerName = net.getLayerNames()
-#print(net.getUnconnectedOutLayers())
-#print(layerName[i[0] - 1] for i in net.getUnconnectedOutLayers())
-layerName = [layerName[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+    image = cv2.imread(img_path)
+    #print(image)
+    (H, W) = image.shape[:2]
 
-blob = cv2.dnn.blobFromImage(image, 1 / 255.0, (416, 416), swapRB = True, crop = False)
-net.setInput(blob)
-layersOutputs = net.forward(layerName)
+    # Determine output layer names
+    layerName = net.getLayerNames()
+    #print(net.getUnconnectedOutLayers())
+    #print(layerName[i[0] - 1] for i in net.getUnconnectedOutLayers())
+    layerName = [layerName[i - 1] for i in net.getUnconnectedOutLayers()]
 
-boxes = []
-confidences = []
-classIDs = []
+    blob = cv2.dnn.blobFromImage(image, 1 / 255.0, (416, 416), swapRB = True, crop = False)
+    net.setInput(blob)
+    layersOutputs = net.forward(layerName)
 
-for output in layersOutputs:
-    for detection in output:
-        scores = detection[5:]
-        classID = np.argmax(scores)
-        confidence = scores[classID]
-        if confidence > confidenceThreshold:
-            box = detection[0:4] * np.array([W, H, W, H])
-            (centerX, centerY,  width, height) = box.astype('int')
-            x = int(centerX - (width/2))
-            y = int(centerY - (height/2))
+    boxes = []
+    confidences = []
+    classIDs = []
 
-            boxes.append([x, y, int(width), int(height)])
-            confidences.append(float(confidence))
-            classIDs.append(classID)
+    for output in layersOutputs:
+        for detection in output:
+            scores = detection[5:]
+            classID = np.argmax(scores)
+            confidence = scores[classID]
+            if confidence > confidenceThreshold:
+                box = detection[0:4] * np.array([W, H, W, H])
+                (centerX, centerY,  width, height) = box.astype('int')
+                x = int(centerX - (width/2))
+                y = int(centerY - (height/2))
 
-#Apply Non Maxima Suppression
-detectionNMS = cv2.dnn.NMSBoxes(boxes, confidences, confidenceThreshold, NMSThreshold)
+                boxes.append([x, y, int(width), int(height)])
+                confidences.append(float(confidence))
+                classIDs.append(classID)
 
-if(len(detectionNMS) > 0):
-    for i in detectionNMS.flatten():
-        (x, y) = (boxes[i][0], boxes[i][1])
-        (w, h) = (boxes[i][2], boxes[i][3])
+    #Apply Non Maxima Suppression
+    detectionNMS = cv2.dnn.NMSBoxes(boxes, confidences, confidenceThreshold, NMSThreshold)
 
-        color = [int(c) for c in COLORS[classIDs[i]]]
-        cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
-        text = '{}: {:.4f}'.format(labels[classIDs[i]], confidences[i])
-        cv2.putText(image, text, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    outputs = {}
 
-cv2.imshow('Image', image)
-cv2.waitKey(0)
+    if len(detectionNMS) > 0:
+        outputs['detections'] = {}
+        outputs['detections']['labels'] = []
+        for i in detectionNMS.flatten():
+            detection = {}
+            detection['Label'] = labels[classIDs[i]]
+            print('Labels', labels[classIDs[i]])
+            detection['confidence'] = confidences[i]
+            detection['X'] = boxes[i][0]
+            detection['Y'] = boxes[i][1]
+            detection['Width'] = boxes[i][2]
+            detection['Height'] = boxes[i][3]
+            outputs['detections']['labels'].append(detection)
+
+    else:
+        outputs['detections'] = 'No object detected'
+    
+    #print(outputs)
+    return outputs
